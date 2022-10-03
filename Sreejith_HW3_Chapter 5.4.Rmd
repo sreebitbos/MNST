@@ -1,0 +1,109 @@
+---
+title: "A3-2"
+output: html_document
+date: "2022-10-01"
+---
+
+```{r}
+require(ISLR); 
+```
+```{r}
+require(dplyr);
+```
+```{r}
+require(boot);
+```
+
+
+```{r}
+glimpse(Default)
+```
+
+
+```{r}
+log_def <- glm(default ~ income + balance, data = Default, family = "binomial")
+
+summary(log_def)$coefficients[, 2]
+```
+```{r}
+boot.fn <- function(data, index = 1:nrow(data)) {
+  coef(glm(default ~ income + balance, data = data, subset = index, family = "binomial"))[-1]
+}
+
+boot.fn(Default)
+```
+
+```{r}
+set.seed(101, sample.kind = "Rounding")
+
+(boot_results <- boot(data = Default, statistic = boot.fn, R = 1000))
+```
+```{r}
+require (ggplot2)
+```
+```{r}
+require (tidyr)
+```
+
+```{r}
+as.data.frame(boot_results$t) %>%
+  rename(income = V1, balance = V2) %>%
+  gather(key = "variable", value = "estimate") %>%
+  ggplot(aes(x = estimate, fill = factor(variable))) + 
+  geom_histogram(bins = 20) + 
+  facet_wrap(~ variable, scales = "free_x") + 
+  labs(title = "1,000 Bootstrap Parameter Estimates - 'balance' & 'income'", 
+       subtitle = paste0("SE(balance) = ", formatC(sd(boot_results$t[ ,2]), format = "e", digits = 6), 
+                         ", SE(income) = ", formatC(sd(boot_results$t[ ,1]), format = "e", digits = 6)), 
+       x = "Parameter Estimate", 
+       y = "Count") + 
+  theme(legend.position = "none")
+```
+```{r}
+sapply(data.frame(income = boot_results$t[ ,1], balance = boot_results$t[ ,2]), sd)
+```
+
+```{r}
+summary(log_def)$coefficients[2:3, 2]
+```
+```{r}
+glimpse(Weekly)
+```
+
+```{r}
+log_dir <- glm(Direction ~ Lag1 + Lag2, data = Weekly, family = "binomial")
+summary(log_dir)
+```
+
+```{r}
+log_dir_2 <- glm(Direction ~ Lag1 + Lag2, data = Weekly[-1, ], family = "binomial")
+summary(log_dir_2)
+```
+
+```{r}
+ifelse(predict(log_dir_2, newdata = Weekly[1, ], type = "response") > 0.5, "Up", "Down")
+```
+
+```{r}
+as.character(Weekly[1, "Direction"])
+```
+```{r}
+error <- c()
+
+for (i in 1:nrow(Weekly)) {
+  log_dir <- glm(Direction ~ Lag1 + Lag2, data = Weekly[-i, ], family = "binomial") # i.
+  prediction <- ifelse(predict(log_dir, newdata = Weekly[i, ], type = "response") > 0.5, "Up", "Down") # ii. & iii.
+  error[i] <- as.numeric(prediction != Weekly[i, "Direction"]) # iv.
+}
+
+error[1:10]
+```
+
+```{r}
+mean(error)
+```
+
+```{r}
+prop.table(table(Weekly$Direction))
+```
+

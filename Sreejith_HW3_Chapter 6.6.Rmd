@@ -1,0 +1,218 @@
+---
+title: "A3-2"
+output: html_document
+date: "2022-10-01"
+---
+
+```{r}
+require(ISLR); 
+```
+
+```{r}
+require(dplyr);
+```
+
+```{r}
+glimpse(College)
+```
+
+```{r}
+set.seed(3)
+train_index <- sample(1:nrow(College), round(nrow(College) * 0.7))
+
+train <- College[train_index, ]
+nrow(train) / nrow(College)
+```
+
+```{r}
+test <- College[-train_index, ]
+nrow(test) / nrow(College)
+```
+```{r}
+model_linear <- lm(Apps ~ ., data = train)
+summary(model_linear)
+```
+```{r}
+require(caret) 
+```
+```{r}
+require(glmnet) 
+```
+
+
+
+```{r}
+train_mat <- dummyVars(Apps ~ ., data = train, fullRank = F) %>%
+  predict(newdata = train) %>%
+  as.matrix()
+
+test_mat <- dummyVars(Apps ~ ., data = test, fullRank = F) %>%
+  predict(newdata = test) %>%
+  as.matrix()
+```
+
+```{r}
+set.seed(3)
+
+model_ridge <- cv.glmnet(y = train$Apps, 
+                         x = train_mat, 
+                         alpha = 0, 
+                         lambda = 10^seq(2,-2, length = 100), 
+                         standardize = TRUE, 
+                         nfolds = 5)
+
+data.frame(lambda = model_ridge$lambda, 
+           cv_mse = model_ridge$cvm) %>%
+  ggplot(aes(x = lambda, y = cv_mse)) + 
+  geom_point() + 
+  geom_line() + 
+  geom_vline(xintercept = model_ridge$lambda.min, col = "deepskyblue3") +
+  geom_hline(yintercept = min(model_ridge$cvm), col = "deepskyblue3") +
+  scale_x_continuous(trans = 'log10', breaks = c(0.01, 0.1, 1, 10, 100), labels = c(0.01, 0.1, 1, 10, 100)) + 
+  scale_y_continuous(labels = scales::comma_format()) + 
+  theme(legend.position = "bottom") + 
+  labs(x = "Lambda", 
+       y = "Cross-Validation MSE", 
+       col = "Non-Zero Coefficients:", 
+       title = "Ridge Regression - Lambda Selection (Using 5-Fold Cross-Validation)")
+```
+```{r}
+model_ridge_best <- glmnet(y = train$Apps,
+                           x = train_mat,
+                           alpha = 0, 
+                           lambda = 10^seq(2,-2, length = 100))
+
+ridge_pred <- predict(model_ridge_best, s = model_ridge$lambda.min, newx = test_mat)
+(ridge_mse <- mean((ridge_pred - test$Apps)^2))
+```
+
+```{r}
+set.seed(4)
+
+model_lasso <- cv.glmnet(y = train$Apps, 
+                         x = train_mat, 
+                         alpha = 1, 
+                         lambda = 10^seq(2, -2, length = 100), 
+                         standardize = TRUE, 
+                         nfolds = 5, 
+                         thresh = 1e-12)
+
+data.frame(lambda = model_lasso$lambda, 
+           cv_mse = model_lasso$cvm, 
+           nonzero_coeff = model_lasso$nzero) %>%
+  ggplot(aes(x = lambda, y = cv_mse, col = nonzero_coeff)) + 
+  geom_point() + 
+  geom_line() + 
+  geom_vline(xintercept = model_lasso$lambda.min, col = "deepskyblue3") +
+  geom_hline(yintercept = min(model_lasso$cvm), col = "deepskyblue3") +
+  scale_x_continuous(trans = 'log10', breaks = c(0.01, 0.1, 1, 10, 100), labels = c(0.01, 0.1, 1, 10, 100)) + 
+  scale_y_continuous(labels = scales::comma_format()) + 
+  theme(legend.position = "bottom") + 
+  scale_color_gradient(low = "red", high = "green") +
+  labs(x = "Lambda", 
+       y = "Cross-Validation MSE", 
+       col = "Non-Zero Coefficients:", 
+       title = "Lasso - Lambda Selection (Using 5-Fold Cross-Validation)")
+```
+```{r}
+model_lasso_best <- glmnet(y = train$Apps,
+                           x = train_mat,
+                           alpha = 1, 
+                           lambda = 10^seq(2,-5, length = 100))
+
+lasso_pred <- predict(model_lasso_best, s = model_lasso$lambda.min, newx = test_mat)
+(lasso_mse <- mean((lasso_pred - test$Apps)^2))
+```
+
+```{r}
+lasso_coef <- predict(model_lasso_best, type = "coefficients", s = model_lasso$lambda.min)
+
+round(lasso_coef, 3)
+```
+
+```{r}
+library(pls)
+```
+
+```{r}
+set.seed(5)
+
+model_pcr <- pcr(Apps ~ .,
+                 data = train, 
+                 scale = T, 
+                 validation = "CV")
+
+model_pcr_mse <- MSEP(model_pcr, estimate = "CV")$val %>%
+  reshape2::melt() %>%
+  mutate(M = 0:(nrow(.)-1)) %>%
+  select(M, value) %>%
+  rename(CV_MSE = value)
+
+model_pcr_mse
+```
+```{r}
+model_pcr_mse %>%
+  mutate(min_CV_MSE = as.numeric(min(CV_MSE) == CV_MSE)) %>%
+  ggplot(aes(x = M, y = CV_MSE)) + 
+  geom_line(col = "grey55") + 
+  geom_point(size = 2, aes(col = factor(min_CV_MSE))) + 
+  scale_y_continuous(labels = scales::comma_format()) + 
+  scale_color_manual(values = c("deepskyblue3", "green")) + 
+  theme(legend.position = "none") + 
+  labs(x = "M", 
+       y = "Cross-Validation MSE", 
+       col = "Non-Zero Coefficients:", 
+       title = "PCR - M Selection (Using 10-Fold Cross-Validation)")
+```
+```{r}
+pcr_pred <- predict(model_pcr, test, ncomp = 17)
+(pcr_mse <- mean((pcr_pred - test$Apps)^2))
+```
+```{r}
+set.seed(6)
+
+model_pls <- plsr(Apps ~ .,
+                  data = train, 
+                  scale = T, 
+                  validation = "CV")
+
+model_pls_mse <- MSEP(model_pls, estimate = "CV")$val %>%
+  reshape2::melt() %>%
+  mutate(M = 0:(nrow(.)-1)) %>%
+  select(M, value) %>%
+  rename(CV_MSE = value)
+
+model_pls_mse
+```
+
+```{r}
+model_pls_mse %>%
+  mutate(min_CV_MSE = as.numeric(min(CV_MSE) == CV_MSE)) %>%
+  ggplot(aes(x = M, y = CV_MSE)) + 
+  geom_line(col = "grey55") + 
+  geom_point(size = 2, aes(col = factor(min_CV_MSE))) + 
+  scale_y_continuous(labels = scales::comma_format()) + 
+  scale_color_manual(values = c("deepskyblue3", "green")) + 
+  theme(legend.position = "none") + 
+  labs(x = "M", 
+       y = "Cross-Validation MSE", 
+       title = "PLS - M Selection (Using 10-Fold Cross-Validation)")
+```
+
+```{r}
+pls_pred <- predict(model_pls, test, ncomp = 12)
+(pls_mse <- mean((pls_pred - test$Apps)^2))
+```
+```{r}
+SS_tot <- sum((test$Apps - mean(test$Apps))^2)
+
+data.frame(method = c("OLS", "Ridge", "Lasso", "PCR", "PLS"), 
+           test_MSE = c(ols_mse, ridge_mse, lasso_mse, pcr_mse, pls_mse), 
+           test_R2 = c(1 - sum((test$Apps - ols_pred)^2) / SS_tot,
+                       1 - sum((test$Apps - ridge_pred)^2) / SS_tot, 
+                       1 - sum((test$Apps - lasso_pred)^2) / SS_tot, 
+                       1 - sum((test$Apps - pcr_pred)^2) / SS_tot, 
+                       1 - sum((test$Apps - pls_pred)^2) / SS_tot)) %>%
+  arrange(test_MSE)
+```
+
